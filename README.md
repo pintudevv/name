@@ -154,3 +154,9 @@ The resulting binary will be located at:
 ```
 target/release/name_changer.exe
 ```
+
+---
+
+## 📄 License
+
+MIT License. Free to use, modify, and distribute.
