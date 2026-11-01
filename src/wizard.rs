@@ -111,10 +111,28 @@ pub fn run_interactive_wizard() -> Result<()> {
                 new_zip_output_path = Some(parent.join(format!("{}.zip", base_name)));
             }
 
-            let rename_folders = Confirm::new("Also rename folder(s) inside the ZIP to match?")
-                .with_default(true)
-                .prompt()?;
-            rules.rename_zip_folders = rename_folders;
+            let folder_options = vec![
+                "⚡ Clean single folder: Simplify into 1 clean folder with new name (Recommended)",
+                "📁 Rename all folder layers: Rename every folder and subfolder to new name",
+                "📂 Keep original folder names unchanged",
+            ];
+
+            let chosen_folder_mode = Select::new(
+                "How should folders inside the ZIP be named?",
+                folder_options,
+            )
+            .prompt()?;
+
+            if chosen_folder_mode.starts_with("⚡ Clean single folder") {
+                rules.rename_zip_folders = true;
+                rules.flatten_zip_folders = true;
+            } else if chosen_folder_mode.starts_with("📁 Rename all folder layers") {
+                rules.rename_zip_folders = true;
+                rules.flatten_zip_folders = false;
+            } else {
+                rules.rename_zip_folders = false;
+                rules.flatten_zip_folders = false;
+            }
         }
     } else {
         // Custom Rules Workflow

@@ -26,6 +26,7 @@ impl CaseMode {
 pub struct RenameRules {
     pub replace_name: Option<String>,
     pub rename_zip_folders: bool,
+    pub flatten_zip_folders: bool,
     pub find: Option<String>,
     pub replace: Option<String>,
     pub is_regex: bool,

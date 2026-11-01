@@ -26,6 +26,10 @@ pub struct CliArgs {
     #[arg(long = "rename-zip", value_name = "ZIP_NAME")]
     pub rename_zip: Option<String>,
 
+    /// Flatten nested folders inside ZIP into a single clean root folder
+    #[arg(long = "flatten")]
+    pub flatten: bool,
+
     /// Text or pattern to search for in filenames
     #[arg(short = 'f', long = "find", value_name = "SEARCH")]
     pub find: Option<String>,
