@@ -13,7 +13,7 @@ pub fn run_interactive_wizard() -> Result<()> {
 
     println!(
         "{}\n",
-        "Welcome! Follow the simple steps below to bulk rename your files.".cyan()
+        "Welcome! Follow the simple steps below to bulk rename your files or ZIP archive.".cyan()
     );
 
     // 1. Ask for Target path
@@ -44,118 +44,182 @@ pub fn run_interactive_wizard() -> Result<()> {
     if is_zip {
         println!(
             "{}",
-            format!("Detected ZIP archive: {}", target_path.display()).green().bold()
+            format!("📦 Detected ZIP archive: {}", target_path.display()).green().bold()
         );
     } else if target_path.is_dir() {
         println!(
             "{}",
-            format!("Detected directory: {}", target_path.display()).green().bold()
+            format!("📁 Detected directory: {}", target_path.display()).green().bold()
         );
     } else {
         println!(
             "{}",
-            format!("Selected single file: {}", target_path.display()).yellow()
+            format!("📄 Selected single file: {}", target_path.display()).yellow()
         );
     }
 
     let mut rules = RenameRules::default();
     let mut recursive = false;
+    let mut new_zip_output_path: Option<PathBuf> = None;
 
-    if !is_zip && target_path.is_dir() {
-        recursive = Confirm::new("Include files in subfolders recursively?")
-            .with_default(false)
-            .prompt()?;
-    }
-
-    // Ask if extension filtering is desired
-    let filter_choice = Confirm::new("Do you want to filter specific file extensions only? (e.g., only .jpg, .png)")
-        .with_default(false)
-        .prompt()?;
-
-    if filter_choice {
-        let exts_input = Text::new("Enter extensions separated by commas (e.g. jpg, png, pdf):")
-            .prompt()?;
-        let exts: Vec<String> = exts_input
-            .split(',')
-            .map(|s| s.trim().trim_start_matches('.').to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if !exts.is_empty() {
-            rules.filter_extensions = Some(exts);
-        }
-    }
-
-    // 2. Select Operations
-    let options = vec![
-        "1. Find and Replace text",
-        "2. Add Prefix (text at start of filename)",
-        "3. Add Suffix (text before file extension)",
-        "4. Sequential Auto-Numbering (001, 002...)",
-        "5. Change Case (lowercase, UPPERCASE, Title Case...)",
-        "6. Sanitize Filenames (replace spaces/symbols with underscores)",
-        "7. Change File Extension",
+    // Ask renaming workflow mode
+    let workflow_modes = vec![
+        "⚡ Quick Rename: Give all files a brand new name + numbering (e.g. MyFiles_001, MyFiles_002...)",
+        "🔧 Custom Rules: Find & replace, prefix/suffix, case formatting, clean symbols, etc.",
     ];
 
-    let chosen_ops = MultiSelect::new("Select renaming actions to apply (Space to toggle, Enter to confirm):", options)
-        .prompt()?;
+    let chosen_mode = Select::new("Choose how you want to rename:", workflow_modes).prompt()?;
 
-    if chosen_ops.is_empty() {
-        println!("{}", "No actions selected. Exiting.".yellow());
-        pause_and_exit();
-        return Ok(());
-    }
+    if chosen_mode.starts_with("⚡ Quick Rename") {
+        let base_name = Text::new("Enter the new name for the files:")
+            .with_help_message("Every file will be named using this base name + number (e.g. 'Photo', 'Episode')")
+            .prompt()?;
 
-    for op in chosen_ops {
-        if op.starts_with("1.") {
-            let find = Text::new("Text to find:").prompt()?;
-            let replace = Text::new("Replace with (leave empty to remove):").prompt()?;
-            let case_insensitive = Confirm::new("Case-insensitive search?")
-                .with_default(true)
-                .prompt()?;
-            let is_regex = Confirm::new("Treat as regular expression (Regex)?")
+        let start_str = Text::new("Start numbering from:")
+            .with_default("1")
+            .prompt()?;
+        let start: usize = start_str.trim().parse().unwrap_or(1);
+
+        let pad_str = Text::new("Number of digits for zero-padding (e.g. 2 -> 01, 3 -> 001):")
+            .with_default("3")
+            .prompt()?;
+        let pad: usize = pad_str.trim().parse().unwrap_or(3);
+
+        let sep = Text::new("Separator before number:")
+            .with_default("_")
+            .prompt()?;
+
+        rules.replace_name = Some(base_name.clone());
+        rules.number_start = Some(start);
+        rules.number_padding = pad;
+        rules.number_prefix = Some(sep);
+
+        // If it's a ZIP, ask if user also wants to rename the ZIP file itself
+        if is_zip {
+            let rename_zip_confirm = Confirm::new(&format!(
+                "Also rename the .ZIP file itself to '{}.zip'?",
+                base_name
+            ))
+            .with_default(true)
+            .prompt()?;
+
+            if rename_zip_confirm {
+                let parent = target_path.parent().unwrap_or(Path::new("."));
+                new_zip_output_path = Some(parent.join(format!("{}.zip", base_name)));
+            }
+        }
+    } else {
+        // Custom Rules Mode
+        if !is_zip && target_path.is_dir() {
+            recursive = Confirm::new("Include files in subfolders recursively?")
                 .with_default(false)
                 .prompt()?;
+        }
 
-            rules.find = Some(find);
-            rules.replace = Some(replace);
-            rules.case_insensitive = case_insensitive;
-            rules.is_regex = is_regex;
-        } else if op.starts_with("2.") {
-            let prefix = Text::new("Enter prefix text to add:").prompt()?;
-            if !prefix.is_empty() {
-                rules.prefix = Some(prefix);
-            }
-        } else if op.starts_with("3.") {
-            let suffix = Text::new("Enter suffix text to add:").prompt()?;
-            if !suffix.is_empty() {
-                rules.suffix = Some(suffix);
-            }
-        } else if op.starts_with("4.") {
-            let start_str = Text::new("Start numbering from:")
-                .with_default("1")
-                .prompt()?;
-            let start: usize = start_str.trim().parse().unwrap_or(1);
-            let pad_str = Text::new("Number of digits for zero-padding (e.g. 3 -> 001):")
-                .with_default("3")
-                .prompt()?;
-            let pad: usize = pad_str.trim().parse().unwrap_or(3);
-            let sep = Text::new("Separator before number (e.g. '_' or '-'):")
-                .with_default("_")
-                .prompt()?;
+        let filter_choice = Confirm::new("Filter specific file extensions only? (e.g., only .jpg, .png)")
+            .with_default(false)
+            .prompt()?;
 
-            rules.number_start = Some(start);
-            rules.number_padding = pad;
-            rules.number_prefix = Some(sep);
-        } else if op.starts_with("5.") {
-            let case_modes = vec!["lowercase", "UPPERCASE", "Title Case", "snake_case", "kebab-case"];
-            let chosen_case = Select::new("Choose casing format:", case_modes).prompt()?;
-            rules.case_mode = CaseMode::from_str(chosen_case);
-        } else if op.starts_with("6.") {
-            rules.clean_spaces = true;
-        } else if op.starts_with("7.") {
-            let ext = Text::new("Enter new extension (e.g. png, jpg, webp):").prompt()?;
-            if !ext.trim().is_empty() {
-                rules.new_extension = Some(ext.trim().to_string());
+        if filter_choice {
+            let exts_input = Text::new("Enter extensions separated by commas (e.g. jpg, png, pdf):")
+                .prompt()?;
+            let exts: Vec<String> = exts_input
+                .split(',')
+                .map(|s| s.trim().trim_start_matches('.').to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !exts.is_empty() {
+                rules.filter_extensions = Some(exts);
+            }
+        }
+
+        let options = vec![
+            "1. Find and Replace text",
+            "2. Add Prefix (text at start of filename)",
+            "3. Add Suffix (text before file extension)",
+            "4. Sequential Auto-Numbering (001, 002...)",
+            "5. Change Case (lowercase, UPPERCASE, Title Case...)",
+            "6. Sanitize Filenames (replace spaces/symbols with underscores)",
+            "7. Change File Extension",
+        ];
+
+        let chosen_ops = MultiSelect::new(
+            "Select renaming actions to apply (Space to toggle, Enter to confirm):",
+            options,
+        )
+        .prompt()?;
+
+        if chosen_ops.is_empty() {
+            println!("{}", "No actions selected. Exiting.".yellow());
+            pause_and_exit();
+            return Ok(());
+        }
+
+        for op in chosen_ops {
+            if op.starts_with("1.") {
+                let find = Text::new("Text to find:").prompt()?;
+                let replace = Text::new("Replace with (leave empty to delete matches):").prompt()?;
+                let case_insensitive = Confirm::new("Case-insensitive search?")
+                    .with_default(true)
+                    .prompt()?;
+                let is_regex = Confirm::new("Treat as regular expression (Regex)?")
+                    .with_default(false)
+                    .prompt()?;
+
+                rules.find = Some(find);
+                rules.replace = Some(replace);
+                rules.case_insensitive = case_insensitive;
+                rules.is_regex = is_regex;
+            } else if op.starts_with("2.") {
+                let prefix = Text::new("Enter prefix text to add:").prompt()?;
+                if !prefix.is_empty() {
+                    rules.prefix = Some(prefix);
+                }
+            } else if op.starts_with("3.") {
+                let suffix = Text::new("Enter suffix text to add:").prompt()?;
+                if !suffix.is_empty() {
+                    rules.suffix = Some(suffix);
+                }
+            } else if op.starts_with("4.") {
+                let start_str = Text::new("Start numbering from:")
+                    .with_default("1")
+                    .prompt()?;
+                let start: usize = start_str.trim().parse().unwrap_or(1);
+                let pad_str = Text::new("Number of digits for zero-padding (e.g. 3 -> 001):")
+                    .with_default("3")
+                    .prompt()?;
+                let pad: usize = pad_str.trim().parse().unwrap_or(3);
+                let sep = Text::new("Separator before number (e.g. '_' or '-'):")
+                    .with_default("_")
+                    .prompt()?;
+
+                rules.number_start = Some(start);
+                rules.number_padding = pad;
+                rules.number_prefix = Some(sep);
+            } else if op.starts_with("5.") {
+                let case_modes = vec!["lowercase", "UPPERCASE", "Title Case", "snake_case", "kebab-case"];
+                let chosen_case = Select::new("Choose casing format:", case_modes).prompt()?;
+                rules.case_mode = CaseMode::from_str(chosen_case);
+            } else if op.starts_with("6.") {
+                rules.clean_spaces = true;
+            } else if op.starts_with("7.") {
+                let ext = Text::new("Enter new extension (e.g. png, jpg, webp):").prompt()?;
+                if !ext.trim().is_empty() {
+                    rules.new_extension = Some(ext.trim().to_string());
+                }
+            }
+        }
+
+        if is_zip {
+            let rename_zip = Confirm::new("Also rename the outer .ZIP file itself?")
+                .with_default(false)
+                .prompt()?;
+            if rename_zip {
+                let new_zip_name = Text::new("Enter new name for the .ZIP file (without .zip):").prompt()?;
+                if !new_zip_name.trim().is_empty() {
+                    let parent = target_path.parent().unwrap_or(Path::new("."));
+                    new_zip_output_path = Some(parent.join(format!("{}.zip", new_zip_name.trim())));
+                }
             }
         }
     }
@@ -165,7 +229,14 @@ pub fn run_interactive_wizard() -> Result<()> {
         let plan = plan_zip_rename(&target_path, &rules)?;
         print_zip_preview(&plan, 30);
 
-        if plan.changed_count == 0 {
+        if let Some(ref nzo) = new_zip_output_path {
+            println!(
+                "{}",
+                format!("ZIP File Rename: '{}' -> '{}'", target_path.file_name().unwrap().to_string_lossy(), nzo.file_name().unwrap().to_string_lossy()).cyan().bold()
+            );
+        }
+
+        if plan.changed_count == 0 && new_zip_output_path.is_none() {
             println!("{}", "Nothing to rename. Exiting.".yellow());
             pause_and_exit();
             return Ok(());
@@ -183,10 +254,11 @@ pub fn run_interactive_wizard() -> Result<()> {
 
         if confirm {
             println!("{}", "Processing ZIP archive...".cyan());
-            let count = execute_zip_rename(&plan, None)?;
+            let count = execute_zip_rename(&plan, new_zip_output_path.as_deref())?;
+            let final_zip = new_zip_output_path.as_ref().unwrap_or(&target_path);
             println!(
                 "{}",
-                format!("Success! Renamed {} entries inside '{}'.", count, target_path.display())
+                format!("Success! Renamed {} files in '{}'.", count, final_zip.display())
                     .green()
                     .bold()
             );

@@ -24,6 +24,7 @@ impl CaseMode {
 
 #[derive(Debug, Clone, Default)]
 pub struct RenameRules {
+    pub replace_name: Option<String>,
     pub find: Option<String>,
     pub replace: Option<String>,
     pub is_regex: bool,
@@ -41,7 +42,8 @@ pub struct RenameRules {
 
 impl RenameRules {
     pub fn is_empty(&self) -> bool {
-        self.find.is_none()
+        self.replace_name.is_none()
+            && self.find.is_none()
             && self.prefix.is_none()
             && self.suffix.is_none()
             && self.number_start.is_none()
@@ -75,7 +77,11 @@ impl RenameRules {
             .unwrap_or(original);
         let ext = path.extension().and_then(|e| e.to_str());
 
-        let mut new_stem = stem.to_string();
+        let mut new_stem = if let Some(ref base) = self.replace_name {
+            base.clone()
+        } else {
+            stem.to_string()
+        };
 
         // 1. Find & Replace
         if let Some(ref find_pattern) = self.find {

@@ -44,6 +44,7 @@ fn main() -> Result<()> {
     }
 
     let rules = RenameRules {
+        replace_name: args.new_name,
         find: args.find.clone(),
         replace: args.replace.or_else(|| if args.find.is_some() { Some(String::new()) } else { None }),
         is_regex: args.is_regex,
@@ -92,6 +93,18 @@ fn main() -> Result<()> {
             return Ok(());
         }
 
+        let new_zip_target = if let Some(ref nz) = args.rename_zip {
+            let clean = nz.trim().trim_end_matches(".zip");
+            let new_filename = format!("{}.zip", clean);
+            Some(target.parent().unwrap_or(std::path::Path::new(".")).join(new_filename))
+        } else {
+            None
+        };
+
+        if let Some(ref nzt) = new_zip_target {
+            println!("{}", format!("ZIP file will also be renamed to: '{}'", nzt.file_name().unwrap().to_string_lossy()).cyan());
+        }
+
         if !args.force {
             let confirm = Confirm::new("Apply these changes to the ZIP archive?")
                 .with_default(true)
@@ -102,9 +115,10 @@ fn main() -> Result<()> {
             }
         }
 
-        let renamed = execute_zip_rename(&plan, None)
+        let renamed = execute_zip_rename(&plan, new_zip_target.as_deref())
             .context("Failed executing zip rename")?;
-        println!("{}", format!("Successfully renamed {} files in '{}'!", renamed, target.display()).green().bold());
+        let final_display = new_zip_target.as_ref().unwrap_or(&target);
+        println!("{}", format!("Successfully renamed {} files in '{}'!", renamed, final_display.display()).green().bold());
     } else if target.is_dir() {
         println!("{}", format!("Processing directory: {}", target.display()).cyan());
         let plan = plan_directory_rename(&target, &rules, args.recursive)?;

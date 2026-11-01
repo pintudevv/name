@@ -254,7 +254,7 @@ pub fn execute_zip_rename(plan: &ZipRenamePlan, output_path: Option<&Path>) -> R
 
     // Atomically replace target
     if temp_file_path.exists() {
-        if target_out.exists() && target_out == plan.zip_path {
+        if target_out == plan.zip_path {
             // Overwriting original zip file safely
             std::fs::rename(&temp_file_path, &target_out).or_else(|_| {
                 // If direct rename fails due to lock, copy and delete
@@ -262,7 +262,15 @@ pub fn execute_zip_rename(plan: &ZipRenamePlan, output_path: Option<&Path>) -> R
                 std::fs::remove_file(&temp_file_path)
             })?;
         } else {
-            std::fs::rename(&temp_file_path, &target_out)?;
+            // Renaming the zip file to a new target name
+            std::fs::rename(&temp_file_path, &target_out).or_else(|_| {
+                std::fs::copy(&temp_file_path, &target_out)?;
+                std::fs::remove_file(&temp_file_path)
+            })?;
+            // Remove original zip file since it has been renamed
+            if plan.zip_path.exists() && plan.zip_path != target_out {
+                let _ = std::fs::remove_file(&plan.zip_path);
+            }
         }
     }
 

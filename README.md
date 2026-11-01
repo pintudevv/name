@@ -39,6 +39,15 @@ The wizard will guide you through:
 
 #### 📁 Folders & Directories
 
+- **⚡ Quick Rename (Replace All & Number):**
+  ```bash
+  # Names every file Vacation_001.jpg, Vacation_002.jpg...
+  name_changer.exe "D:\photos" --new-name "Vacation" --number 1
+
+  # Inside a ZIP: renames files to Episode_001, Episode_002... AND renames the zip file to 'Season1.zip'
+  name_changer.exe "D:\pack.zip" --new-name "Episode" --number 1 --rename-zip "Season1"
+  ```
+
 - **Find & Replace text:**
   ```bash
   name_changer.exe "D:\photos" --find "IMG_" --replace "Vacation_"

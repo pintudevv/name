@@ -18,6 +18,14 @@ pub struct CliArgs {
     #[arg(short = 't', long = "target", value_name = "PATH")]
     pub target_flag: Option<PathBuf>,
 
+    /// Replace the entire filename with this new name (pair with --number for Name_001, Name_002...)
+    #[arg(short = 'N', long = "new-name", value_name = "NAME")]
+    pub new_name: Option<String>,
+
+    /// Also rename the .ZIP archive file itself to this new name (e.g. --rename-zip "NewArchive")
+    #[arg(long = "rename-zip", value_name = "ZIP_NAME")]
+    pub rename_zip: Option<String>,
+
     /// Text or pattern to search for in filenames
     #[arg(short = 'f', long = "find", value_name = "SEARCH")]
     pub find: Option<String>,
@@ -96,6 +104,7 @@ impl CliArgs {
     pub fn is_empty_run(&self) -> bool {
         self.target.is_none()
             && self.target_flag.is_none()
+            && self.new_name.is_none()
             && self.find.is_none()
             && self.replace.is_none()
             && self.prefix.is_none()
