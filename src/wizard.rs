@@ -62,54 +62,64 @@ pub fn run_interactive_wizard() -> Result<()> {
     let mut recursive = false;
     let mut new_zip_output_path: Option<PathBuf> = None;
 
-    // Ask renaming workflow mode
-    let workflow_modes = vec![
-        "⚡ Quick Rename: Give all files a brand new name + numbering (e.g. MyFiles_001, MyFiles_002...)",
-        "🔧 Custom Rules: Find & replace, prefix/suffix, case formatting, clean symbols, etc.",
-    ];
+    // 2. Ask for the New Name directly!
+    println!(
+        "\n{}",
+        "👉 Enter the new name you want to give to your files:".cyan().bold()
+    );
+    println!(
+        "{}",
+        "   (Or simply press Enter to access advanced Custom Rules like Find & Replace)".bright_black()
+    );
 
-    let chosen_mode = Select::new("Choose how you want to rename:", workflow_modes).prompt()?;
+    let name_input = Text::new("Enter new name:")
+        .with_help_message("e.g. 'Pintu_chaudhary_06_DS_sem5' or press Enter for custom rules")
+        .prompt()?;
 
-    if chosen_mode.starts_with("⚡ Quick Rename") {
-        let base_name = Text::new("Enter the new name for the files:")
-            .with_help_message("Every file will be named using this base name + number (e.g. 'Photo', 'Episode')")
-            .prompt()?;
-
-        let start_str = Text::new("Start numbering from:")
-            .with_default("1")
-            .prompt()?;
-        let start: usize = start_str.trim().parse().unwrap_or(1);
-
-        let pad_str = Text::new("Number of digits for zero-padding (e.g. 2 -> 01, 3 -> 001):")
-            .with_default("3")
-            .prompt()?;
-        let pad: usize = pad_str.trim().parse().unwrap_or(3);
-
-        let sep = Text::new("Separator before number:")
-            .with_default("_")
-            .prompt()?;
-
+    if !name_input.trim().is_empty() {
+        let base_name = name_input.trim().to_string();
         rules.replace_name = Some(base_name.clone());
-        rules.number_start = Some(start);
-        rules.number_padding = pad;
-        rules.number_prefix = Some(sep);
 
-        // If it's a ZIP, ask if user also wants to rename the ZIP file itself
+        // Ask if numbering should be added
+        let add_numbers = Confirm::new("Add numbering like _001, _002 to filenames?")
+            .with_default(false)
+            .prompt()?;
+
+        if add_numbers {
+            let start_str = Text::new("Start numbering from:")
+                .with_default("1")
+                .prompt()?;
+            rules.number_start = Some(start_str.trim().parse().unwrap_or(1));
+
+            let pad_str = Text::new("Zero-padding digits (e.g. 2 -> 01, 3 -> 001):")
+                .with_default("3")
+                .prompt()?;
+            rules.number_padding = pad_str.trim().parse().unwrap_or(3);
+            rules.number_prefix = Some("_".to_string());
+        }
+
         if is_zip {
-            let rename_zip_confirm = Confirm::new(&format!(
-                "Also rename the .ZIP file itself to '{}.zip'?",
+            let rename_zip = Confirm::new(&format!(
+                "Also rename the .ZIP file to '{}.zip'?",
                 base_name
             ))
             .with_default(true)
             .prompt()?;
 
-            if rename_zip_confirm {
+            if rename_zip {
                 let parent = target_path.parent().unwrap_or(Path::new("."));
                 new_zip_output_path = Some(parent.join(format!("{}.zip", base_name)));
             }
+
+            let rename_folders = Confirm::new("Also rename folder(s) inside the ZIP to match?")
+                .with_default(true)
+                .prompt()?;
+            rules.rename_zip_folders = rename_folders;
         }
     } else {
-        // Custom Rules Mode
+        // Custom Rules Workflow
+        println!("\n{}", "🔧 Advanced Custom Rules:".cyan().bold());
+
         if !is_zip && target_path.is_dir() {
             recursive = Confirm::new("Include files in subfolders recursively?")
                 .with_default(false)
@@ -144,7 +154,7 @@ pub fn run_interactive_wizard() -> Result<()> {
         ];
 
         let chosen_ops = MultiSelect::new(
-            "Select renaming actions to apply (Space to toggle, Enter to confirm):",
+            "Select actions to apply (Space to toggle, Enter to confirm):",
             options,
         )
         .prompt()?;
@@ -258,7 +268,7 @@ pub fn run_interactive_wizard() -> Result<()> {
             let final_zip = new_zip_output_path.as_ref().unwrap_or(&target_path);
             println!(
                 "{}",
-                format!("Success! Renamed {} files in '{}'.", count, final_zip.display())
+                format!("Success! Renamed {} items in '{}'.", count, final_zip.display())
                     .green()
                     .bold()
             );

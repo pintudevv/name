@@ -45,6 +45,7 @@ fn main() -> Result<()> {
 
     let rules = RenameRules {
         replace_name: args.new_name,
+        rename_zip_folders: true,
         find: args.find.clone(),
         replace: args.replace.or_else(|| if args.find.is_some() { Some(String::new()) } else { None }),
         is_regex: args.is_regex,

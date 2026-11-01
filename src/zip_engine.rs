@@ -38,6 +38,27 @@ pub fn plan_zip_rename(zip_path: &Path, rules: &RenameRules) -> Result<ZipRename
     let file = File::open(zip_path).with_context(|| format!("Cannot open zip file '{}'", zip_path.display()))?;
     let mut archive = ZipArchive::new(file).context("Invalid or corrupted ZIP archive")?;
 
+    // Detect if all or most entries share a common top-level root folder
+    let mut common_root: Option<String> = None;
+    if rules.rename_zip_folders && rules.replace_name.is_some() {
+        for i in 0..archive.len() {
+            if let Ok(entry) = archive.by_index(i) {
+                let name = entry.name();
+                if let Some(first_slash) = name.find('/') {
+                    let top_part = name[..=first_slash].to_string();
+                    match common_root {
+                        None => common_root = Some(top_part),
+                        Some(ref cur) if cur != &top_part => {
+                            common_root = None;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     let mut items = Vec::new();
     let mut matching_index = 0;
     let mut target_names_set = HashSet::new();
@@ -48,32 +69,52 @@ pub fn plan_zip_rename(zip_path: &Path, rules: &RenameRules) -> Result<ZipRename
         let is_dir = entry.is_dir() || entry_name.ends_with('/');
 
         if is_dir {
+            let new_dir_name = if let (Some(ref old_root), Some(ref new_base)) = (&common_root, &rules.replace_name) {
+                if entry_name.starts_with(old_root) {
+                    format!("{}{}", format!("{}/", new_base), &entry_name[old_root.len()..])
+                } else {
+                    entry_name.clone()
+                }
+            } else {
+                entry_name.clone()
+            };
+
+            let is_changed = new_dir_name != entry_name;
             items.push(ZipRenameItem {
                 original_entry_name: entry_name.clone(),
                 original_file_name: entry_name.clone(),
-                new_entry_name: entry_name.clone(),
+                new_entry_name: new_dir_name,
                 new_file_name: entry_name,
                 is_dir: true,
-                is_changed: false,
+                is_changed,
                 conflict_error: None,
             });
             continue;
         }
 
         // Separate directory prefix inside zip (e.g. "subfolder/image.png")
-        let (dir_prefix, file_name) = match entry_name.rfind('/') {
+        let (mut dir_prefix, file_name) = match entry_name.rfind('/') {
             Some(idx) => (entry_name[..=idx].to_string(), entry_name[idx + 1..].to_string()),
             None => (String::new(), entry_name.clone()),
         };
 
+        // If top folder inside zip is being renamed, adjust dir_prefix
+        if let (Some(ref old_root), Some(ref new_base)) = (&common_root, &rules.replace_name) {
+            if dir_prefix.starts_with(old_root) {
+                dir_prefix = format!("{}{}", format!("{}/", new_base), &dir_prefix[old_root.len()..]);
+            }
+        }
+
         if !rules.matches_extension(&file_name) {
+            let new_entry_name = format!("{}{}", dir_prefix, file_name);
+            let is_changed = new_entry_name != entry_name;
             items.push(ZipRenameItem {
-                original_entry_name: entry_name.clone(),
+                original_entry_name: entry_name,
                 original_file_name: file_name.clone(),
-                new_entry_name: entry_name,
+                new_entry_name,
                 new_file_name: file_name,
                 is_dir: false,
-                is_changed: false,
+                is_changed,
                 conflict_error: None,
             });
             continue;
@@ -96,27 +137,31 @@ pub fn plan_zip_rename(zip_path: &Path, rules: &RenameRules) -> Result<ZipRename
         };
 
         matching_index += 1;
-        let new_entry_name = format!("{}{}", dir_prefix, new_file_name);
-        let is_changed = new_entry_name != entry_name;
+        let mut final_file_name = new_file_name;
+        let mut candidate_entry_name = format!("{}{}", dir_prefix, final_file_name);
 
-        let mut conflict_error = None;
-        if is_changed {
-            let lower_key = new_entry_name.to_lowercase();
-            if target_names_set.contains(&lower_key) {
-                conflict_error = Some(format!("Collision: duplicate entry '{}'", new_entry_name));
-            } else {
-                target_names_set.insert(lower_key);
-            }
+        // Disambiguate if target already exists in this folder (e.g. multiple files getting same name)
+        let mut counter = 1;
+        while target_names_set.contains(&candidate_entry_name.to_lowercase()) {
+            let p = Path::new(&final_file_name);
+            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or(&final_file_name);
+            let ext = p.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+            final_file_name = format!("{}_{}{}", stem, counter, ext);
+            candidate_entry_name = format!("{}{}", dir_prefix, final_file_name);
+            counter += 1;
         }
+
+        target_names_set.insert(candidate_entry_name.to_lowercase());
+        let is_changed = candidate_entry_name != entry_name;
 
         items.push(ZipRenameItem {
             original_entry_name: entry_name,
             original_file_name: file_name,
-            new_entry_name,
-            new_file_name,
+            new_entry_name: candidate_entry_name,
+            new_file_name: final_file_name,
             is_dir: false,
             is_changed,
-            conflict_error,
+            conflict_error: None,
         });
     }
 
@@ -164,11 +209,13 @@ pub fn print_zip_preview(plan: &ZipRenamePlan, max_display: usize) {
                 err.red().bold()
             );
         } else {
+            let label = if item.is_dir { " [folder]" } else { "" };
             println!(
-                "{:<4} {:<40} -> {:<40}",
+                "{:<4} {:<40} -> {:<40}{}",
                 (i + 1).to_string().bright_black(),
                 orig_display.dimmed(),
-                new_display.green().bold()
+                new_display.green().bold(),
+                label.bright_black()
             );
         }
     }
